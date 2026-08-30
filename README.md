@@ -1,6 +1,6 @@
 # 🎵 YMusic Desktop
 
-A complete, high-performance, cross-platform desktop client for **YouTube** and **YouTube Music** built using **Python 3**, **PyQt6**, and **QWebEngineView**. Inspired by *YMusic for Android*, this client provides an ad-free, lightweight, and background-playback-enabled desktop experience with built-in media controls and `yt-dlp` stream downloading.
+A complete, high-performance, cross-platform desktop client for **YouTube** and **YouTube Music** built using **Python 3**, **PyQt6**, and **QWebEngineView**. this client provides an ad-free, lightweight, and background-playback-enabled desktop experience with built-in media controls and `yt-dlp` stream downloading.
 
 ---
 
