@@ -1,6 +1,11 @@
 """
 Basic Unit Tests for YMusic Desktop modules.
 """
+import sys
+import os
+
+# Add root directory to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 def test_imports():
     import config
