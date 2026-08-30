@@ -3,17 +3,51 @@ Downloader Module for YMusic Desktop.
 Leverages yt-dlp in background QThreads to download:
 - High-quality audio (MP3 320k, Opus, M4A, FLAC) with ID3 metadata and embedded cover art.
 - Full HD / 4K / 720p video streams with automatic audio muxing.
-Provides rich progress callbacks and multi-task queue management.
+Automatically detects and bundles FFmpeg via imageio-ffmpeg or system PATH,
+with graceful single-stream fallback if FFmpeg is unavailable.
 """
 
 import os
-import re
+import shutil
 import uuid
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMutex, QMutexLocker
 import yt_dlp
+
+
+def get_ffmpeg_path() -> Optional[str]:
+    """
+    Locates FFmpeg executable automatically from imageio-ffmpeg or system PATH.
+    """
+    # 1. Check bundled imageio_ffmpeg package
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:
+        pass
+
+    # 2. Check system PATH
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        return system_ffmpeg
+
+    # 3. Check typical Windows install locations
+    common_paths = [
+        os.path.expanduser(r"~\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-*\bin\ffmpeg.exe"),
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+    ]
+    for p in common_paths:
+        import glob
+        matches = glob.glob(p)
+        if matches and os.path.exists(matches[0]):
+            return matches[0]
+
+    return None
 
 
 class DownloadTask:
@@ -82,6 +116,8 @@ class DownloaderWorker(QThread):
         os.makedirs(task.output_dir, exist_ok=True)
         out_tmpl = os.path.join(task.output_dir, "%(title)s.%(ext)s")
 
+        ffmpeg_exe = get_ffmpeg_path()
+
         # Configure yt-dlp parameters
         ydl_opts: Dict[str, Any] = {
             "outtmpl": out_tmpl,
@@ -93,48 +129,52 @@ class DownloaderWorker(QThread):
             "noplaylist": True,
         }
 
-        # Build format and postprocessors based on download type
+        if ffmpeg_exe:
+            ydl_opts["ffmpeg_location"] = ffmpeg_exe
+
         postprocessors: List[Dict[str, Any]] = []
 
         if task.download_type == "audio":
-            # Audio-only download
-            ydl_opts["format"] = "bestaudio/best"
-            
-            audio_format = task.format_name.lower()
-            audio_quality = task.quality if task.quality in ("320", "256", "192", "128") else "320"
+            if ffmpeg_exe:
+                ydl_opts["format"] = "bestaudio/best"
+                audio_format = task.format_name.lower()
+                audio_quality = task.quality if task.quality in ("320", "256", "192", "128") else "320"
 
-            # FFmpeg audio extraction
-            postprocessors.append({
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": audio_format if audio_format in ("mp3", "opus", "m4a", "flac") else "mp3",
-                "preferredquality": audio_quality,
-            })
+                postprocessors.append({
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": audio_format if audio_format in ("mp3", "opus", "m4a", "flac") else "mp3",
+                    "preferredquality": audio_quality,
+                })
 
-            # Metadata tagging
-            if task.embed_metadata:
-                postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
-
-            # Thumbnail embedding
-            if task.embed_thumbnail:
-                ydl_opts["writethumbnail"] = True
-                postprocessors.append({"key": "EmbedThumbnail"})
+                if task.embed_metadata:
+                    postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
+                if task.embed_thumbnail and audio_format in ("mp3", "m4a", "flac"):
+                    ydl_opts["writethumbnail"] = True
+                    postprocessors.append({"key": "EmbedThumbnail"})
+            else:
+                # Direct audio stream download when ffmpeg is not available
+                ydl_opts["format"] = "bestaudio[ext=m4a]/bestaudio/best"
 
         else:
             # Video download
-            res_map = {
-                "best": "bestvideo+bestaudio/best",
-                "1080p": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-                "720p": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-                "480p": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
-            }
-            ydl_opts["format"] = res_map.get(task.format_name, "bestvideo+bestaudio/best")
-            ydl_opts["merge_output_format"] = "mp4"
+            if ffmpeg_exe:
+                res_map = {
+                    "best": "bestvideo+bestaudio/best",
+                    "1080p": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+                    "720p": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+                    "480p": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+                }
+                ydl_opts["format"] = res_map.get(task.format_name, "bestvideo+bestaudio/best")
+                ydl_opts["merge_output_format"] = "mp4"
 
-            if task.embed_metadata:
-                postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
-            if task.embed_thumbnail:
-                ydl_opts["writethumbnail"] = True
-                postprocessors.append({"key": "EmbedThumbnail"})
+                if task.embed_metadata:
+                    postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
+                if task.embed_thumbnail:
+                    ydl_opts["writethumbnail"] = True
+                    postprocessors.append({"key": "EmbedThumbnail"})
+            else:
+                # Direct single stream download
+                ydl_opts["format"] = "best[ext=mp4]/best"
 
         if postprocessors:
             ydl_opts["postprocessors"] = postprocessors
@@ -161,14 +201,12 @@ class DownloaderWorker(QThread):
                     if "_filename" in download_result:
                         final_file = download_result["_filename"]
                     else:
-                        # Estimate output file name
                         expected = ydl.prepare_filename(download_result)
                         final_file = expected
-                        # Adjust extension if audio conversion occurred
-                        if task.download_type == "audio":
+                        if task.download_type == "audio" and ffmpeg_exe:
                             base, _ = os.path.splitext(expected)
                             final_file = f"{base}.{task.format_name}"
-                        elif task.download_type == "video":
+                        elif task.download_type == "video" and ffmpeg_exe:
                             base, _ = os.path.splitext(expected)
                             final_file = f"{base}.mp4"
 
@@ -183,10 +221,6 @@ class DownloaderWorker(QThread):
 
         except Exception as e:
             err_msg = str(e)
-            # Clean up common ffmpeg warnings in error messages
-            if "ffmpeg not found" in err_msg.lower():
-                err_msg = "FFmpeg is required for format conversion and metadata embedding. Please install FFmpeg on your system."
-            
             task.status = "error"
             task.error_message = err_msg
             self.task_finished.emit(task.task_id, "", False, err_msg)
@@ -208,7 +242,6 @@ class DownloaderWorker(QThread):
             percent = (downloaded / total * 100) if total > 0 else 0.0
             task.progress_percent = percent
 
-            # Format human-readable strings
             def _format_bytes(b: float) -> str:
                 if b >= 1024 * 1024 * 1024:
                     return f"{b / (1024**3):.2f} GB"
@@ -314,7 +347,6 @@ class DownloadManager(QObject):
     def _on_worker_finished(self, task_id, filepath, success, err_msg):
         with QMutexLocker(self._mutex):
             if task_id in self.workers:
-                # Keep worker reference until thread finishes completely
                 worker = self.workers.pop(task_id)
                 worker.wait(1000)
         self.task_completed.emit(task_id, filepath, success, err_msg)
