@@ -158,6 +158,11 @@ class IconFactory:
             painter.drawLine(QPointF(pad * 1.2, pad * 1.2), QPointF(w - pad * 1.2, h - pad * 1.2))
             painter.drawLine(QPointF(w - pad * 1.2, pad * 1.2), QPointF(pad * 1.2, h - pad * 1.2))
 
+        elif name in ("plus", "add"):
+            # Clean '+' icon
+            painter.drawLine(QPointF(w / 2.0, pad * 1.1), QPointF(w / 2.0, h - pad * 1.1))
+            painter.drawLine(QPointF(pad * 1.1, h / 2.0), QPointF(w - pad * 1.1, h / 2.0))
+
         elif name == "app_logo":
             # Circular badge with play triangle in YouTube Red
             painter.setBrush(QBrush(cls.PRIMARY_COLOR))

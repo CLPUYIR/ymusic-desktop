@@ -22,15 +22,15 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QButtonGroup,
-    QStackedWidget,
+    QTabWidget,
+    QMenu,
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import (
     QWebEngineProfile,
 )
 from PyQt6.QtCore import QUrl, Qt
-from PyQt6.QtGui import QIcon, QCloseEvent, QWindowStateChangeEvent
+from PyQt6.QtGui import QIcon, QCloseEvent, QWindowStateChangeEvent, QKeySequence, QShortcut
 
 from config import settings, Config
 from core.adblocker import AdBlockUrlRequestInterceptor, create_adblock_script
@@ -93,6 +93,10 @@ class SettingsDialog(QDialog):
         self.chk_notif.setChecked(settings.get("notifications_enabled", True))
         form.addRow("", self.chk_notif)
 
+        self.chk_auto_pause = QCheckBox("Auto-pause Audio on Inactive Tabs when Switching")
+        self.chk_auto_pause.setChecked(settings.get("auto_pause_inactive_tabs", True))
+        form.addRow("", self.chk_auto_pause)
+
         layout.addLayout(form)
         layout.addStretch()
 
@@ -122,12 +126,14 @@ class SettingsDialog(QDialog):
         settings.set("close_to_tray", self.chk_close_tray.isChecked())
         settings.set("minimize_to_tray", self.chk_min_tray.isChecked())
         settings.set("notifications_enabled", self.chk_notif.isChecked())
+        settings.set("auto_pause_inactive_tabs", self.chk_auto_pause.isChecked())
         self.accept()
 
 
 class MainWindow(QMainWindow):
     """
-    Main Application Window integrating persistent dual-views, Media Controls, and Downloader.
+    Main Application Window integrating dynamic multi-tab WebEngine views
+    (YouTube Music & YouTube Video), Media Controls, System Tray, and Downloader.
     """
 
     def __init__(self):
@@ -136,8 +142,11 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         self.setWindowIcon(IconFactory.create_icon("app_logo", size=64))
 
-        # Setup Profile, Interceptor, and Pages
+        # Setup Profile and Ad-Block Interceptor
         self._init_web_engine()
+
+        # Setup UI (Multi-Tab QTabWidget)
+        self._init_ui()
 
         # Setup Media Controller targeting active web view page
         self.media_ctrl = MediaController(self._get_active_page, self)
@@ -145,19 +154,30 @@ class MainWindow(QMainWindow):
         # Setup System Tray
         self.tray_mgr = SystemTrayManager(self)
 
-        # Setup UI (Dual persistent WebViews in QStackedWidget)
-        self._init_ui()
+        # Setup Keyboard Shortcuts
+        self._setup_shortcuts()
+
+        # Connect signals
         self._connect_signals()
+
+        # Create initial tab based on default preference
+        initial_service = settings.get("default_service", "music")
+        self.create_new_tab(service=initial_service, switch_to=True)
 
         # Show tray icon
         self.tray_mgr.show()
 
     def _get_active_page(self):
-        """Returns the page of currently active or playing web view."""
-        if hasattr(self, "stacked_views"):
-            cur_view = self.stacked_views.currentWidget()
-            if isinstance(cur_view, QWebEngineView):
-                return cur_view.page()
+        """Returns the page of currently active web view tab."""
+        view = self._get_current_view()
+        return view.page() if view else None
+
+    def _get_current_view(self) -> QWebEngineView:
+        """Returns the currently active QWebEngineView."""
+        if hasattr(self, "tabs"):
+            widget = self.tabs.currentWidget()
+            if isinstance(widget, QWebEngineView):
+                return widget
         return None
 
     def _init_web_engine(self):
@@ -175,7 +195,7 @@ class MainWindow(QMainWindow):
         self.profile.scripts().insert(create_adblock_script())
 
     def _init_ui(self):
-        """Constructs window widgets, toolbars, dual-view stack, and player bar."""
+        """Constructs window widgets, toolbars, multi-tab bar, and player bar."""
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
@@ -190,17 +210,17 @@ class MainWindow(QMainWindow):
         # Back / Forward / Refresh
         self.btn_back = QToolButton()
         self.btn_back.setIcon(IconFactory.create_icon("back"))
-        self.btn_back.setToolTip("Go Back")
+        self.btn_back.setToolTip("Go Back (Alt+Left)")
         self.btn_back.clicked.connect(self._go_back)
 
         self.btn_fwd = QToolButton()
         self.btn_fwd.setIcon(IconFactory.create_icon("forward"))
-        self.btn_fwd.setToolTip("Go Forward")
+        self.btn_fwd.setToolTip("Go Forward (Alt+Right)")
         self.btn_fwd.clicked.connect(self._go_forward)
 
         self.btn_reload = QToolButton()
         self.btn_reload.setIcon(IconFactory.create_icon("refresh"))
-        self.btn_reload.setToolTip("Reload Page")
+        self.btn_reload.setToolTip("Reload Page (F5)")
         self.btn_reload.clicked.connect(self._reload_page)
 
         self.nav_toolbar.addWidget(self.btn_back)
@@ -208,27 +228,23 @@ class MainWindow(QMainWindow):
         self.nav_toolbar.addWidget(self.btn_reload)
         self.nav_toolbar.addSeparator()
 
-        # Service Switcher (YouTube Music vs YouTube Video)
-        self.btn_mode_music = QToolButton()
-        self.btn_mode_music.setIcon(IconFactory.create_icon("music"))
-        self.btn_mode_music.setText(" YouTube Music")
-        self.btn_mode_music.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_mode_music.setCheckable(True)
-        self.btn_mode_music.clicked.connect(self.switch_to_music)
+        # Fast New Tab Launchers (YouTube Music & Standard YouTube)
+        self.btn_add_music = QToolButton()
+        self.btn_add_music.setIcon(IconFactory.create_icon("music"))
+        self.btn_add_music.setText(" + Music")
+        self.btn_add_music.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_add_music.setToolTip("Open New YouTube Music Tab (Ctrl+T / Ctrl+M)")
+        self.btn_add_music.clicked.connect(lambda: self.create_new_tab("music", switch_to=True))
 
-        self.btn_mode_yt = QToolButton()
-        self.btn_mode_yt.setIcon(IconFactory.create_icon("youtube"))
-        self.btn_mode_yt.setText(" YouTube Video")
-        self.btn_mode_yt.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_mode_yt.setCheckable(True)
-        self.btn_mode_yt.clicked.connect(self.switch_to_youtube)
+        self.btn_add_yt = QToolButton()
+        self.btn_add_yt.setIcon(IconFactory.create_icon("youtube"))
+        self.btn_add_yt.setText(" + YouTube")
+        self.btn_add_yt.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_add_yt.setToolTip("Open New YouTube Video Tab (Ctrl+Y)")
+        self.btn_add_yt.clicked.connect(lambda: self.create_new_tab("youtube", switch_to=True))
 
-        self.mode_group = QButtonGroup(self)
-        self.mode_group.addButton(self.btn_mode_music)
-        self.mode_group.addButton(self.btn_mode_yt)
-
-        self.nav_toolbar.addWidget(self.btn_mode_music)
-        self.nav_toolbar.addWidget(self.btn_mode_yt)
+        self.nav_toolbar.addWidget(self.btn_add_music)
+        self.nav_toolbar.addWidget(self.btn_add_yt)
         self.nav_toolbar.addSeparator()
 
         # URL / Search Bar
@@ -244,7 +260,7 @@ class MainWindow(QMainWindow):
         self.btn_shield.clicked.connect(self._toggle_adblock)
         self.nav_toolbar.addWidget(self.btn_shield)
 
-        # Download Current Song Button (Vibrant)
+        # Download Current Song Button
         self.btn_download_cur = QPushButton(" ⬇ Download")
         self.btn_download_cur.setIcon(IconFactory.create_icon("download"))
         self.btn_download_cur.setStyleSheet(
@@ -268,24 +284,31 @@ class MainWindow(QMainWindow):
         self.btn_settings.clicked.connect(self.open_settings)
         self.nav_toolbar.addWidget(self.btn_settings)
 
-        # ----------------- Stacked Persistent WebViews ----------------- #
-        self.stacked_views = QStackedWidget(self)
+        # ----------------- Dynamic Multi-Tab Bar (QTabWidget) ----------------- #
+        self.tabs = QTabWidget(self)
+        self.tabs.setTabsClosable(True)
+        self.tabs.setMovable(True)
+        self.tabs.setDocumentMode(True)
+        self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        self.tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
-        # 1. YouTube Music View
-        self.view_music = QWebEngineView(self)
-        self.page_music = YMusicWebPage(self.profile, self.view_music)
-        self.view_music.setPage(self.page_music)
-        self.view_music.setUrl(QUrl(Config.URL_YOUTUBE_MUSIC))
+        # Corner Add Tab Button
+        self.btn_corner_add = QToolButton()
+        self.btn_corner_add.setObjectName("AddTabButton")
+        self.btn_corner_add.setIcon(IconFactory.create_icon("plus", size=18))
+        self.btn_corner_add.setToolTip("New Tab (Click for options, Ctrl+T for Music, Ctrl+Y for Video)")
+        self.btn_corner_add.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
-        # 2. Standard YouTube View
-        self.view_yt = QWebEngineView(self)
-        self.page_yt = YMusicWebPage(self.profile, self.view_yt)
-        self.view_yt.setPage(self.page_yt)
-        self.view_yt.setUrl(QUrl(Config.URL_YOUTUBE))
+        add_menu = QMenu(self)
+        act_add_music = add_menu.addAction(IconFactory.create_icon("music"), "New YouTube Music Tab (Ctrl+T)")
+        act_add_music.triggered.connect(lambda: self.create_new_tab("music", switch_to=True))
+        act_add_yt = add_menu.addAction(IconFactory.create_icon("youtube"), "New YouTube Video Tab (Ctrl+Y)")
+        act_add_yt.triggered.connect(lambda: self.create_new_tab("youtube", switch_to=True))
+        self.btn_corner_add.setMenu(add_menu)
+        self.tabs.setCornerWidget(self.btn_corner_add, Qt.Corner.TopRightCorner)
 
-        self.stacked_views.addWidget(self.view_music)
-        self.stacked_views.addWidget(self.view_yt)
-        main_layout.addWidget(self.stacked_views, 1)
+        main_layout.addWidget(self.tabs, 1)
 
         # ----------------- Bottom Status & Mini Player Bar ----------------- #
         self.bottom_player = QWidget(self)
@@ -337,21 +360,21 @@ class MainWindow(QMainWindow):
         # Manager dialog instance
         self.download_manager_window = DownloadManagerWindow(self)
 
-        # Initial view selection
-        initial_service = settings.get("default_service", "music")
-        if initial_service == "youtube":
-            self.switch_to_youtube()
-        else:
-            self.switch_to_music()
+    def _setup_shortcuts(self):
+        """Registers keyboard shortcuts for browser-style tab management."""
+        QShortcut(QKeySequence("Ctrl+T"), self, lambda: self.create_new_tab("music", switch_to=True))
+        QShortcut(QKeySequence("Ctrl+M"), self, lambda: self.create_new_tab("music", switch_to=True))
+        QShortcut(QKeySequence("Ctrl+Y"), self, lambda: self.create_new_tab("youtube", switch_to=True))
+        QShortcut(QKeySequence("Ctrl+W"), self, self._close_current_tab)
+        QShortcut(QKeySequence("Ctrl+Tab"), self, self._next_tab)
+        QShortcut(QKeySequence("Ctrl+Shift+Tab"), self, self._prev_tab)
+
+        for i in range(1, 9):
+            QShortcut(QKeySequence(f"Ctrl+{i}"), self, lambda idx=i - 1: self._jump_to_tab(idx))
+        QShortcut(QKeySequence("Ctrl+9"), self, self._jump_to_last_tab)
 
     def _connect_signals(self):
-        """Connects WebEngine, Media Controller, and Tray signals."""
-        self.view_music.urlChanged.connect(self._on_music_url_changed)
-        self.view_yt.urlChanged.connect(self._on_yt_url_changed)
-
-        self.view_music.titleChanged.connect(self._on_music_title_changed)
-        self.view_yt.titleChanged.connect(self._on_yt_title_changed)
-
+        """Connects Media Controller and Tray signals."""
         # Media controller signals
         self.media_ctrl.track_changed.connect(self._on_track_changed)
         self.media_ctrl.playback_state_changed.connect(self._on_playback_state_changed)
@@ -367,64 +390,173 @@ class MainWindow(QMainWindow):
         # Downloader signals
         download_manager.task_completed.connect(self._on_download_finished)
 
-    # ----------------- Persistent View Switching ----------------- #
+    # ----------------- Dynamic Tab Management ----------------- #
 
-    def switch_to_music(self):
-        """Switches display to YouTube Music view without reloading or resetting."""
-        self.btn_mode_music.setChecked(True)
-        self.stacked_views.setCurrentWidget(self.view_music)
-        self.url_bar.setText(self.view_music.url().toString())
-        self.media_ctrl.update_track_info()
+    def create_new_tab(self, service: str = "music", url: str = None, switch_to: bool = True) -> QWebEngineView:
+        """
+        Creates and loads a new tab for YouTube Music or Standard YouTube.
+        """
+        if url:
+            target_url = url
+            is_music = "music.youtube.com" in url.lower()
+            service = "music" if is_music else "youtube"
+        elif service == "youtube":
+            target_url = Config.URL_YOUTUBE
+        else:
+            target_url = Config.URL_YOUTUBE_MUSIC
+            service = "music"
 
-    def switch_to_youtube(self):
-        """Switches display to Standard YouTube view without reloading or resetting."""
-        self.btn_mode_yt.setChecked(True)
-        self.stacked_views.setCurrentWidget(self.view_yt)
-        self.url_bar.setText(self.view_yt.url().toString())
-        self.media_ctrl.update_track_info()
+        view = QWebEngineView(self)
+        page = YMusicWebPage(self.profile, view, window_ref=self)
+        view.setPage(page)
+        view.setProperty("service", service)
 
-    def _get_current_view(self) -> QWebEngineView:
-        return self.stacked_views.currentWidget()
+        # Connect tab signals
+        view.titleChanged.connect(lambda title, v=view: self._on_tab_title_changed(v, title))
+        view.urlChanged.connect(lambda u, v=view: self._on_tab_url_changed(v, u))
 
-    def _go_back(self):
-        self._get_current_view().back()
+        icon = IconFactory.create_icon("music" if service == "music" else "youtube")
+        default_label = "YouTube Music" if service == "music" else "YouTube Video"
 
-    def _go_forward(self):
-        self._get_current_view().forward()
+        idx = self.tabs.addTab(view, icon, default_label)
+        self.tabs.setTabToolTip(idx, default_label)
 
-    def _reload_page(self):
-        self._get_current_view().reload()
+        if switch_to:
+            self.tabs.setCurrentIndex(idx)
 
-    def _on_search_or_navigate(self):
-        text = self.url_bar.text().strip()
-        if not text:
+        view.setUrl(QUrl(target_url))
+        return view
+
+    def create_new_tab_for_page(self) -> QWebEnginePage:
+        """Factory method called by YMusicWebPage.createWindow for new tabs."""
+        view = self.create_new_tab(service="youtube", switch_to=True)
+        return view.page()
+
+    def _on_tab_changed(self, index: int):
+        """Handles switching between tabs with auto-pausing on inactive tabs."""
+        if index < 0 or not hasattr(self, "tabs"):
             return
 
-        cur_view = self._get_current_view()
-        if text.startswith("http://") or text.startswith("https://"):
-            cur_view.setUrl(QUrl(text))
+        cur_view = self.tabs.widget(index)
+        if not isinstance(cur_view, QWebEngineView):
+            return
+
+        # Auto-pause audio on all other background tabs if enabled
+        if settings.get("auto_pause_inactive_tabs", True):
+            pause_js = """
+            (function() {
+                const video = document.querySelector('video');
+                if (video && !video.paused) {
+                    video.pause();
+                }
+            })();
+            """
+            for i in range(self.tabs.count()):
+                if i != index:
+                    other_view = self.tabs.widget(i)
+                    if isinstance(other_view, QWebEngineView):
+                        other_view.page().runJavaScript(pause_js)
+
+        # Update address bar to reflect new active tab
+        self.url_bar.setText(cur_view.url().toString())
+
+        # Update window title
+        t = cur_view.title()
+        if t:
+            self.setWindowTitle(f"{t} - YMusic")
         else:
-            if cur_view == self.view_music:
-                search_url = f"https://music.youtube.com/search?q={QUrl.toPercentEncoding(text).data().decode()}"
-            else:
-                search_url = f"https://www.youtube.com/results?search_query={QUrl.toPercentEncoding(text).data().decode()}"
-            cur_view.setUrl(QUrl(search_url))
+            svc = cur_view.property("service") or "music"
+            name = "YouTube Music" if svc == "music" else "YouTube Video"
+            self.setWindowTitle(f"{name} - YMusic")
 
-    def _on_music_url_changed(self, url: QUrl):
-        if self._get_current_view() == self.view_music:
+        # Immediately update bottom player & tray state
+        self.media_ctrl.update_track_info()
+
+    def _on_tab_close_requested(self, index: int):
+        """Closes the specified tab, ensuring at least one tab remains open."""
+        if self.tabs.count() <= 1:
+            # Recreate fresh default tab so app is never blank
+            default_svc = settings.get("default_service", "music")
+            self.create_new_tab(service=default_svc, switch_to=True)
+            self._close_tab_at(0)
+        else:
+            self._close_tab_at(index)
+
+    def _close_tab_at(self, index: int):
+        """Safely stops and cleans up a tab widget."""
+        view = self.tabs.widget(index)
+        if isinstance(view, QWebEngineView):
+            # Clean up audio and page
+            view.page().runJavaScript("""
+            (function() {
+                const video = document.querySelector('video');
+                if (video) { video.pause(); video.src = ''; }
+            })();
+            """)
+            view.stop()
+            self.tabs.removeTab(index)
+            view.setPage(None)
+            view.deleteLater()
+
+    def _close_current_tab(self):
+        idx = self.tabs.currentIndex()
+        if idx >= 0:
+            self._on_tab_close_requested(idx)
+
+    def _next_tab(self):
+        count = self.tabs.count()
+        if count > 1:
+            self.tabs.setCurrentIndex((self.tabs.currentIndex() + 1) % count)
+
+    def _prev_tab(self):
+        count = self.tabs.count()
+        if count > 1:
+            self.tabs.setCurrentIndex((self.tabs.currentIndex() - 1) % count)
+
+    def _jump_to_tab(self, idx: int):
+        if 0 <= idx < self.tabs.count():
+            self.tabs.setCurrentIndex(idx)
+
+    def _jump_to_last_tab(self):
+        if self.tabs.count() > 0:
+            self.tabs.setCurrentIndex(self.tabs.count() - 1)
+
+    def _on_tab_title_changed(self, view: QWebEngineView, title: str):
+        """Dynamically truncates and updates tab text and tooltip."""
+        idx = self.tabs.indexOf(view)
+        if idx >= 0 and title:
+            clean_title = (
+                title.replace(" - YouTube Music", "")
+                .replace(" - YouTube", "")
+                .strip()
+            )
+            short_title = clean_title[:24] + ("..." if len(clean_title) > 24 else "")
+            self.tabs.setTabText(idx, short_title or "Tab")
+            self.tabs.setTabToolTip(idx, f"{title}\n{view.url().toString()}")
+
+            if self._get_current_view() == view:
+                self.setWindowTitle(f"{title} - YMusic")
+
+    def _on_tab_url_changed(self, view: QWebEngineView, url: QUrl):
+        """Updates URL bar and service icon when URL changes."""
+        if self._get_current_view() == view:
             self.url_bar.setText(url.toString())
 
-    def _on_yt_url_changed(self, url: QUrl):
-        if self._get_current_view() == self.view_yt:
-            self.url_bar.setText(url.toString())
+        idx = self.tabs.indexOf(view)
+        if idx >= 0:
+            url_str = url.toString().lower()
+            is_music = "music.youtube.com" in url_str
+            self.tabs.setTabIcon(idx, IconFactory.create_icon("music" if is_music else "youtube"))
 
-    def _on_music_title_changed(self, title: str):
-        if self._get_current_view() == self.view_music and title:
-            self.setWindowTitle(f"{title} - YMusic")
+    # ----------------- Navigation Actions ----------------- #
 
-    def _on_yt_title_changed(self, title: str):
-        if self._get_current_view() == self.view_yt and title:
-            self.setWindowTitle(f"{title} - YMusic")
+    def switch_to_music(self):
+        """Creates or switches to YouTube Music tab."""
+        self.create_new_tab("music", switch_to=True)
+
+    def switch_to_youtube(self):
+        """Creates or switches to Standard YouTube tab."""
+        self.create_new_tab("youtube", switch_to=True)
 
     # ----------------- Media & Track Updates ----------------- #
 
@@ -441,7 +573,9 @@ class MainWindow(QMainWindow):
             display_str += f"  [{current_time} / {duration}]"
             self.lbl_current_track.setText(display_str)
         else:
-            active_name = "YouTube Music" if self._get_current_view() == self.view_music else "YouTube Video"
+            cur = self._get_current_view()
+            is_music = cur and "music.youtube.com" in cur.url().toString().lower()
+            active_name = "YouTube Music" if is_music else "YouTube Video"
             self.lbl_current_track.setText(f"Ready • {active_name}")
 
         # Update ad counter

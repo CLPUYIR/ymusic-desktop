@@ -47,6 +47,7 @@ class Config:
 
         self.defaults = {
             "default_service": "music",  # 'music' or 'youtube'
+            "auto_pause_inactive_tabs": True,  # Auto-pause audio on background tabs
             "adblock_enabled": True,
             "element_hiding_enabled": True,
             "minimize_to_tray": True,

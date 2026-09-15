@@ -30,8 +30,12 @@ A complete, high-performance, cross-platform desktop client for **YouTube** and 
   - Automatic **ID3 metadata tagging** (Title, Artist, Album) and **album cover artwork embedding**.
   - Download Manager window with live speed, ETA, progress bars, cancellation, and "Open Containing Folder" actions.
 
-- **🔀 Dual Mode**:
-  - One-click toggle between **YouTube Music** (`music.youtube.com`) and **Standard YouTube** (`youtube.com`).
+- **📑 Dynamic Multi-Tab System**:
+  - Open unlimited **YouTube Music** and **Standard YouTube** tabs concurrently.
+  - Browser-style tab bar with live track titles, service icons, and individual tab close buttons.
+  - Quick **`+ Music`** and **`+ YouTube`** toolbar buttons and dedicated `+` add tab menu.
+  - **Auto-pause on inactive tabs**: Automatically pauses background audio when switching tabs to prevent audio overlap.
+  - **Browser Shortcuts**: `Ctrl+T`/`Ctrl+M` (New Music tab), `Ctrl+Y` (New Video tab), `Ctrl+W` (Close tab), `Ctrl+Tab` (Cycle tabs), `Ctrl+1`..`Ctrl+9` (Jump to tab).
 
 - **🎨 Modern Dark Theme**:
   - Polished interface matching YouTube Music's dark aesthetic with custom vector icons (no external asset files required).

@@ -153,32 +153,76 @@ QSlider::handle:horizontal:hover {
     background: #ff4d6d;
 }
 
-/* Tab Widget */
+/* Tab Widget & Multi-Tab Browser Styling */
 QTabWidget::pane {
-    border: 1px solid #262626;
-    background-color: #111111;
-    border-radius: 6px;
+    border: none;
+    background-color: #0a0a0a;
+}
+
+QTabBar {
+    background-color: #121212;
+    qproperty-drawBase: 0;
+    border-bottom: 1px solid #202020;
 }
 
 QTabBar::tab {
-    background-color: #181818;
-    color: #aaaaaa;
-    padding: 8px 18px;
+    background-color: #161616;
+    color: #9e9e9e;
+    padding: 7px 12px 7px 10px;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
-    margin-right: 2px;
+    margin-right: 3px;
+    margin-top: 3px;
+    min-width: 90px;
+    max-width: 200px;
+    font-size: 12px;
+    font-weight: 500;
 }
 
 QTabBar::tab:selected {
-    background-color: #242424;
+    background-color: #222222;
     color: #ffffff;
     font-weight: bold;
     border-bottom: 2px solid #ff0033;
 }
 
-QTabBar::tab:hover {
-    background-color: #1e1e1e;
-    color: #f1f1f1;
+QTabBar::tab:hover:!selected {
+    background-color: #1c1c1c;
+    color: #e0e0e0;
+}
+
+QTabBar::close-button {
+    image: none;
+    subcontrol-position: right;
+    margin-right: 2px;
+    padding: 2px;
+    border-radius: 3px;
+}
+
+QTabBar::close-button:hover {
+    background-color: #ff0033;
+    color: #ffffff;
+}
+
+#AddTabButton {
+    background-color: transparent;
+    color: #bbbbbb;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 3px 8px;
+    margin: 2px 4px;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+#AddTabButton:hover {
+    background-color: #2a2a2a;
+    color: #ffffff;
+    border: 1px solid #3d3d3d;
+}
+
+#AddTabButton:pressed {
+    background-color: #1a1a1a;
 }
 
 /* Scrollbars */

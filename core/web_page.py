@@ -60,8 +60,9 @@ class YMusicWebPage(QWebEnginePage):
 
     status_message_requested = pyqtSignal(str)
 
-    def __init__(self, profile: QWebEngineProfile, parent=None):
+    def __init__(self, profile: QWebEngineProfile, parent=None, window_ref=None):
         super().__init__(profile, parent)
+        self.window_ref = window_ref
         self.featurePermissionRequested.connect(self._handle_permission_request)
         self.apply_page_settings()
         self._inject_background_script()
@@ -150,4 +151,8 @@ class YMusicWebPage(QWebEnginePage):
         return super().acceptNavigationRequest(url, _type, isMainFrame)
 
     def createWindow(self, _type: QWebEnginePage.WebWindowType) -> QWebEnginePage:
+        if self.window_ref and hasattr(self.window_ref, "create_new_tab_for_page"):
+            new_page = self.window_ref.create_new_tab_for_page()
+            if new_page:
+                return new_page
         return self
