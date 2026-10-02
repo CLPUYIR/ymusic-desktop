@@ -32,9 +32,14 @@ class Config:
             QStandardPaths.StandardLocation.AppConfigLocation
         )
         if not base_dir:
-            base_dir = os.path.expanduser("~/.ymusic_desktop")
+            self.config_dir = Path.home() / ".ymusic_desktop"
+        else:
+            p = Path(base_dir)
+            if self.APP_NAME.lower() not in p.as_posix().lower():
+                self.config_dir = p / self.APP_NAME
+            else:
+                self.config_dir = p
         
-        self.config_dir = Path(base_dir)
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_file = self.config_dir / "settings.json"
 
@@ -43,7 +48,13 @@ class Config:
             QStandardPaths.StandardLocation.MusicLocation
         )
         if not default_music_dir:
-            default_music_dir = os.path.expanduser("~/Music")
+            default_music_dir = str(Path.home() / "Music")
+        
+        # Ensure default download directory exists
+        try:
+            Path(default_music_dir).mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
         self.defaults = {
             "default_service": "music",  # 'music' or 'youtube'
@@ -80,6 +91,7 @@ class Config:
     def save(self):
         """Saves current configuration to JSON file."""
         try:
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=4)
         except Exception as e:

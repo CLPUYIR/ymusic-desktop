@@ -1,8 +1,9 @@
 Set WshShell = CreateObject("WScript.Shell")
 strDesktop = WshShell.SpecialFolders("Desktop")
 Set oShortcut = WshShell.CreateShortcut(strDesktop & "\YMusic Desktop.lnk")
-oShortcut.TargetPath = "C:\Users\abhis\ymusic_desktop\run.bat"
-oShortcut.WorkingDirectory = "C:\Users\abhis\ymusic_desktop"
+strScriptDir = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)
+oShortcut.TargetPath = strScriptDir & "\run.bat"
+oShortcut.WorkingDirectory = strScriptDir
 oShortcut.WindowStyle = 1
 oShortcut.Description = "YMusic Desktop Client"
 oShortcut.Save

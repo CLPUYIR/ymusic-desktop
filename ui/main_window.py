@@ -5,6 +5,7 @@ Media Controller, System Tray, Ad Blocker, and Downloader.
 """
 
 import os
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -28,6 +29,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import (
     QWebEngineProfile,
+    QWebEnginePage,
+    QWebEngineSettings,
+    QWebEngineScript,
+    QWebEngineUrlRequestInterceptor,
 )
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtGui import QIcon, QCloseEvent, QWindowStateChangeEvent, QKeySequence, QShortcut
@@ -120,8 +125,14 @@ class SettingsDialog(QDialog):
             self.txt_dir.setText(chosen)
 
     def _save_settings(self):
+        download_dir = self.txt_dir.text().strip()
+        if download_dir:
+            try:
+                Path(download_dir).mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                print(f"[Settings] Error creating download directory: {e}")
         settings.set("default_service", self.combo_service.currentData())
-        settings.set("download_dir", self.txt_dir.text().strip())
+        settings.set("download_dir", download_dir)
         settings.set("adblock_enabled", self.chk_adblock.isChecked())
         settings.set("close_to_tray", self.chk_close_tray.isChecked())
         settings.set("minimize_to_tray", self.chk_min_tray.isChecked())
@@ -145,11 +156,11 @@ class MainWindow(QMainWindow):
         # Setup Profile and Ad-Block Interceptor
         self._init_web_engine()
 
-        # Setup UI (Multi-Tab QTabWidget)
-        self._init_ui()
-
         # Setup Media Controller targeting active web view page
         self.media_ctrl = MediaController(self._get_active_page, self)
+
+        # Setup UI (Multi-Tab QTabWidget)
+        self._init_ui()
 
         # Setup System Tray
         self.tray_mgr = SystemTrayManager(self)
@@ -549,6 +560,49 @@ class MainWindow(QMainWindow):
             self.tabs.setTabIcon(idx, IconFactory.create_icon("music" if is_music else "youtube"))
 
     # ----------------- Navigation Actions ----------------- #
+
+    def _go_back(self):
+        """Navigates back in the current web view history."""
+        view = self._get_current_view()
+        if view:
+            view.back()
+
+    def _go_forward(self):
+        """Navigates forward in the current web view history."""
+        view = self._get_current_view()
+        if view:
+            view.forward()
+
+    def _reload_page(self):
+        """Reloads the current web view page."""
+        view = self._get_current_view()
+        if view:
+            view.reload()
+
+    def _on_search_or_navigate(self):
+        """Handles navigation or search from the URL bar."""
+        text = self.url_bar.text().strip()
+        if not text:
+            return
+
+        view = self._get_current_view()
+        if not view:
+            view = self.create_new_tab("music", switch_to=True)
+
+        if text.startswith("http://") or text.startswith("https://"):
+            target_url = text
+        elif "." in text and " " not in text:
+            target_url = f"https://{text}"
+        else:
+            svc = view.property("service") or "music"
+            import urllib.parse
+            query = urllib.parse.quote_plus(text)
+            if svc == "youtube":
+                target_url = f"https://www.youtube.com/results?search_query={query}"
+            else:
+                target_url = f"https://music.youtube.com/search?q={query}"
+
+        view.setUrl(QUrl(target_url))
 
     def switch_to_music(self):
         """Creates or switches to YouTube Music tab."""

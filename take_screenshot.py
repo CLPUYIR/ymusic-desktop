@@ -6,6 +6,7 @@ saves it to the artifact directory, and then exits cleanly.
 
 import sys
 import os
+from pathlib import Path
 
 # Chromium flags
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
@@ -30,10 +31,16 @@ def take_snapshot():
     window = MainWindow()
     window.show()
 
-    # Save destination in artifact directory
-    artifact_dir = r"C:\Users\abhis\.gemini\antigravity-cli\brain\a73bc1bb-4082-453c-a1d6-16e5f6d16088"
-    os.makedirs(artifact_dir, exist_ok=True)
-    screenshot_path = os.path.join(artifact_dir, "ymusic_desktop_ui.png")
+    # Save destination dynamically (e.g. artifacts directory or local screenshots folder)
+    repo_dir = Path(__file__).resolve().parent
+    artifact_env = os.environ.get("ARTIFACT_DIR")
+    if artifact_env:
+        artifact_dir = Path(artifact_env)
+    else:
+        artifact_dir = repo_dir / "screenshots"
+
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    screenshot_path = str(artifact_dir / "ymusic_desktop_ui.png")
 
     def capture():
         pixmap = window.grab()

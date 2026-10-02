@@ -8,6 +8,7 @@ Provides:
 import os
 import subprocess
 import sys
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -168,9 +169,9 @@ class QuickDownloadDialog(QDialog):
             return
 
         save_dir = self.txt_dir.text().strip()
-        if not os.path.isdir(save_dir):
+        if save_dir:
             try:
-                os.makedirs(save_dir, exist_ok=True)
+                Path(save_dir).mkdir(parents=True, exist_ok=True)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Cannot create directory: {e}")
                 return
@@ -304,7 +305,11 @@ class DownloadItemWidget(QFrame):
         folder = self.task.output_dir
         if self.task.final_filepath and os.path.exists(self.task.final_filepath):
             folder = os.path.dirname(self.task.final_filepath)
-        if os.path.exists(folder):
+        if folder:
+            try:
+                Path(folder).mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
 
@@ -382,7 +387,11 @@ class DownloadManagerWindow(QDialog):
 
     def _open_default_folder(self):
         dest = settings.get("download_dir")
-        if os.path.exists(dest):
+        if dest:
+            try:
+                Path(dest).mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             QDesktopServices.openUrl(QUrl.fromLocalFile(dest))
 
     def _clear_completed(self):

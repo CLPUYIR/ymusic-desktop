@@ -13,7 +13,7 @@ import uuid
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMutex, QMutexLocker
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMutex, QMutexLocker, QStandardPaths
 import yt_dlp
 
 
@@ -35,11 +35,14 @@ def get_ffmpeg_path() -> Optional[str]:
     if system_ffmpeg:
         return system_ffmpeg
 
-    # 3. Check typical Windows install locations
+    # 3. Check typical Windows install locations dynamically
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    system_drive = os.environ.get("SystemDrive", "C:")
+    local_app_data = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
     common_paths = [
-        os.path.expanduser(r"~\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-*\bin\ffmpeg.exe"),
-        r"C:\ffmpeg\bin\ffmpeg.exe",
-        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+        os.path.join(local_app_data, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe", "ffmpeg-*", "bin", "ffmpeg.exe"),
+        os.path.join(system_drive + os.sep, "ffmpeg", "bin", "ffmpeg.exe"),
+        os.path.join(program_files, "ffmpeg", "bin", "ffmpeg.exe"),
     ]
     for p in common_paths:
         import glob
@@ -68,7 +71,8 @@ class DownloadTask:
         self.download_type = download_type
         self.format_name = format_name
         self.quality = quality
-        self.output_dir = output_dir or os.path.expanduser("~/Music")
+        default_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.MusicLocation) or str(Path.home() / "Music")
+        self.output_dir = output_dir or default_dir
         self.embed_metadata = embed_metadata
         self.embed_thumbnail = embed_thumbnail
 
@@ -113,7 +117,7 @@ class DownloaderWorker(QThread):
         self.task_started.emit(task.task_id)
 
         # Ensure output directory exists
-        os.makedirs(task.output_dir, exist_ok=True)
+        Path(task.output_dir).mkdir(parents=True, exist_ok=True)
         out_tmpl = os.path.join(task.output_dir, "%(title)s.%(ext)s")
 
         ffmpeg_exe = get_ffmpeg_path()

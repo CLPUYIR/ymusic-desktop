@@ -23,3 +23,9 @@ ENV/
 settings.json
 web_profile/
 downloads/
+
+# PyInstaller build outputs
+build/
+dist/
+*.spec
+screenshots/
