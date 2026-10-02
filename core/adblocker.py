@@ -21,6 +21,7 @@ class AdBlockUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
     """
 
     BLOCKED_DOMAINS = {
+        # Core Google & DoubleClick Ad Networks
         "doubleclick.net",
         "googleads.g.doubleclick.net",
         "pubads.g.doubleclick.net",
@@ -35,6 +36,21 @@ class AdBlockUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
         "ad.doubleclick.net",
         "static.doubleclick.net",
         "googlesyndication.com",
+
+        # YouTube ad serving & video promos
+        "ad.youtube.com",
+        "ads.youtube.com",
+        "video-stats.l.google.com",
+        "s0.2mdn.net",
+        "2mdn.net",
+
+        # Conversion & telemetry beacons
+        "www.googleadservices.com",
+        "googleadservices.com",
+        "pagead2.googleadservices.com",
+        "ade.googlesyndication.com",
+        "adservice.google.de",
+        "ads.google.com",
     }
 
     def __init__(self, enabled: bool = True):
@@ -45,6 +61,27 @@ class AdBlockUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
     def set_enabled(self, enabled: bool):
         self.enabled = enabled
 
+    def is_blocked(self, url: QUrl) -> bool:
+        """Determines if a request URL belongs to an ad / tracker endpoint."""
+        host = url.host().lower()
+        path = url.path().lower()
+
+        # Check adservice.google.* ccTLDs (e.g. adservice.google.de, adservice.google.co.uk)
+        if host.startswith("adservice.google.") or ".adservice.google." in host:
+            return True
+
+        # Check if host matches or ends with any blocked domain
+        for blocked_host in self.BLOCKED_DOMAINS:
+            if host == blocked_host or host.endswith("." + blocked_host):
+                return True
+
+        # Check YouTube ad telemetry and beacon paths without affecting videoplayback
+        if "youtube.com" in host:
+            if path.startswith(("/api/stats/ads", "/pagead/")):
+                return True
+
+        return False
+
     def interceptRequest(self, info: QWebEngineUrlRequestInfo):
         """
         Blocks external ad domain requests.
@@ -53,14 +90,10 @@ class AdBlockUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
             return
 
         url: QUrl = info.requestUrl()
-        host = url.host().lower()
-
-        # Check if host matches or ends with any blocked domain
-        for blocked_host in self.BLOCKED_DOMAINS:
-            if host == blocked_host or host.endswith("." + blocked_host):
-                info.block(True)
-                self.blocked_count += 1
-                return
+        if self.is_blocked(url):
+            info.block(True)
+            self.blocked_count += 1
+            return
 
 
 # CSS to cleanly remove promotional banners and overlay ads without breaking page layout

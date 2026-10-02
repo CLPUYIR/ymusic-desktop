@@ -13,7 +13,7 @@ from PyQt6.QtCore import QStandardPaths
 class Config:
     APP_NAME = "YMusic Desktop"
     APP_ORG = "YMusicProject"
-    APP_VERSION = "1.0.1"
+    APP_VERSION = "1.0.2"
 
     # Default URLs
     URL_YOUTUBE_MUSIC = "https://music.youtube.com"

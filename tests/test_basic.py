@@ -33,6 +33,43 @@ class TestYMusicDesktop(unittest.TestCase):
         self.assertFalse(icon_plus.isNull())
         self.assertFalse(icon_add.isNull())
 
+    def test_adblocker_domains(self):
+        from core.adblocker import AdBlockUrlRequestInterceptor
+        from PyQt6.QtCore import QUrl
+
+        interceptor = AdBlockUrlRequestInterceptor(enabled=True)
+
+        blocked_urls = [
+            "https://doubleclick.net/ad",
+            "https://googleads.g.doubleclick.net/pagead/id",
+            "https://ad.youtube.com/track",
+            "https://ads.youtube.com/serve",
+            "https://video-stats.l.google.com/stats",
+            "https://s0.2mdn.net/ads/ad.js",
+            "https://static.doubleclick.net/instream/ad_status.js",
+            "https://www.googleadservices.com/pagead/conversion/",
+            "https://googleadservices.com/pagead/conversion/",
+            "https://ade.googlesyndication.com/pagead",
+            "https://adservice.google.de/adsid/google/ui",
+            "https://adservice.google.co.uk/adsid/google/ui",
+            "https://www.youtube.com/api/stats/ads?v=123",
+            "https://www.youtube.com/pagead/viewthroughconversion/123",
+        ]
+
+        allowed_urls = [
+            "https://music.youtube.com/",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://rr1---sn-4g5edn6e.googlevideo.com/videoplayback?expire=123",
+            "https://accounts.google.com/signin",
+        ]
+
+        for url in blocked_urls:
+            self.assertTrue(interceptor.is_blocked(QUrl(url)), f"Expected {url} to be blocked")
+
+        for url in allowed_urls:
+            self.assertFalse(interceptor.is_blocked(QUrl(url)), f"Expected {url} to NOT be blocked")
+
 
 if __name__ == "__main__":
     unittest.main()
